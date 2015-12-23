@@ -258,8 +258,15 @@ void StaticLayer::reset()
 void StaticLayer::updateBounds(double robot_x, double robot_y, double robot_yaw, double* min_x, double* min_y,
                                double* max_x, double* max_y)
 {
-  if (!map_received_ || !(has_updated_data_ || has_extra_bounds_))
-    return;
+
+  if( !layered_costmap_->isRolling() ){
+
+    if ( !map_received_ || !(has_updated_data_ || has_extra_bounds_)){
+        return;
+    }
+
+  }
+
 
   useExtraBounds(min_x, min_y, max_x, max_y);
 
@@ -278,8 +285,10 @@ void StaticLayer::updateBounds(double robot_x, double robot_y, double robot_yaw,
 
 void StaticLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
 {
-  if (!map_received_)
+  if (!map_received_){
     return;
+  }
+
 
   if (!layered_costmap_->isRolling())
   {
@@ -305,6 +314,7 @@ void StaticLayer::updateCosts(costmap_2d::Costmap2D& master_grid, int min_i, int
       ROS_ERROR("%s", ex.what());
       return;
     }
+
     // Copy map data given proper transformations
     for (unsigned int i = min_i; i < max_i; ++i)
     {

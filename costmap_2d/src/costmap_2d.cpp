@@ -210,6 +210,7 @@ bool Costmap2D::worldToMap(double wx, double wy, unsigned int& mx, unsigned int&
   if (wx < origin_x_ || wy < origin_y_)
     return false;
 
+
   mx = (int)((wx - origin_x_) / resolution_);
   my = (int)((wy - origin_y_) / resolution_);
 

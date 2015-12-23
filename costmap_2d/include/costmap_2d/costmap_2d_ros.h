@@ -122,6 +122,13 @@ public:
    */
   bool getRobotPose(tf::Stamped<tf::Pose>& global_pose) const;
 
+  /**
+   * @brief Get the origin of the costmap in the global frame of the costmap
+   * @param origin_pose Will be set to the orgin of the costmap in the global frame of the costmap
+   * @return True if the pose was set successfully, false otherwise
+   */
+  bool getOriginPose(tf::Stamped<tf::Pose>& origin_pose) const;
+
   /** @brief Return a pointer to the "master" costmap which receives updates from all the layers.
    *
    * Same as calling getLayeredCostmap()->getCostmap(). */
@@ -147,6 +154,16 @@ public:
     {
       return robot_base_frame_;
     }
+
+  /**
+   * @brief  Returns the orign frame of the costmap
+   * @return The origin frame of the costmap
+   */
+  std::string getOriginFrameID()
+    {
+      return origin_frame_;
+    }
+
   LayeredCostmap* getLayeredCostmap()
     {
       return layered_costmap_;
@@ -213,12 +230,19 @@ public:
    * getUnpaddedRobotFootprint(). */
   void setUnpaddedRobotFootprintPolygon(const geometry_msgs::Polygon& footprint);
 
+  /** @brief Returns the shared TF listener.
+   *
+  */
+   tf::TransformListener* getTransformListener() { return &tf_; }
+
+
 protected:
   LayeredCostmap* layered_costmap_;
   std::string name_;
   tf::TransformListener& tf_;  ///< @brief Used for transforming point clouds
   std::string global_frame_;  ///< @brief The global frame for the costmap
   std::string robot_base_frame_;  ///< @brief The frame_id of the robot base
+  std::string origin_frame_;  ///< @brief The frame_id of the origin of the costmap
   double transform_tolerance_;  ///< timeout before transform errors
 
 private:
@@ -233,6 +257,7 @@ private:
   void reconfigureCB(costmap_2d::Costmap2DConfig &config, uint32_t level);
   void movementCB(const ros::TimerEvent &event);
   void mapUpdateLoop(double frequency);
+  bool getPose(tf::Stamped<tf::Pose>& pose, std::string frame) const;
   bool map_update_thread_shutdown_;
   bool stop_updates_, initialized_, stopped_, robot_stopped_;
   boost::thread* map_update_thread_;  ///< @brief A thread for updating the map

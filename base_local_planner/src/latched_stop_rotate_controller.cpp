@@ -36,6 +36,11 @@ LatchedStopRotateController::~LatchedStopRotateController() {}
  */
 bool LatchedStopRotateController::isPositionReached(LocalPlannerUtil* planner_util,
     tf::Stamped<tf::Pose> global_pose) {
+  // struct timeval start_e, start_a, end_f;
+  // double start_e_t, start_a_t, end_f_t, se_diff;
+  // gettimeofday(&start_e, NULL);
+  // start_e_t = start_e.tv_sec + double(start_e.tv_usec) / 1e6;
+
   double xy_goal_tolerance = planner_util->getCurrentLimits().xy_goal_tolerance;
 
   //we assume the global goal is the last point in the global plan
@@ -51,8 +56,20 @@ bool LatchedStopRotateController::isPositionReached(LocalPlannerUtil* planner_ut
   if ((latch_xy_goal_tolerance_ && xy_tolerance_latch_) ||
       base_local_planner::getGoalPositionDistance(global_pose, goal_x, goal_y) <= xy_goal_tolerance) {
     xy_tolerance_latch_ = true;
+
+    // gettimeofday(&end_f, NULL);
+    // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+    // se_diff = end_f_t - start_e_t;
+    // ROS_INFO("latchedController: isPositionReached time: %.9f", se_diff);
+
     return true;
   }
+
+  // gettimeofday(&end_f, NULL);
+  // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+  // se_diff = end_f_t - start_e_t;
+  // ROS_INFO("latchedController: isPositionReached time: %.9f", se_diff);
+
   return false;
 }
 
@@ -64,6 +81,11 @@ bool LatchedStopRotateController::isPositionReached(LocalPlannerUtil* planner_ut
 bool LatchedStopRotateController::isGoalReached(LocalPlannerUtil* planner_util,
     OdometryHelperRos& odom_helper,
     tf::Stamped<tf::Pose> global_pose) {
+  // struct timeval start_e, end_f;
+  // double start_e_t, end_f_t, se_diff;
+  // gettimeofday(&start_e, NULL);
+  // start_e_t = start_e.tv_sec + double(start_e.tv_usec) / 1e6;
+
   double xy_goal_tolerance = planner_util->getCurrentLimits().xy_goal_tolerance;
   double rot_stopped_vel = planner_util->getCurrentLimits().rot_stopped_vel;
   double trans_stopped_vel = planner_util->getCurrentLimits().trans_stopped_vel;
@@ -72,16 +94,31 @@ bool LatchedStopRotateController::isGoalReached(LocalPlannerUtil* planner_util,
   nav_msgs::Odometry base_odom;
   odom_helper.getOdom(base_odom);
 
+  // gettimeofday(&end_f, NULL);
+  // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+  // se_diff = end_f_t - start_e_t;
+  // ROS_INFO("latchedController: isGoalReached until odom time: %.9f", se_diff);
+
   //we assume the global goal is the last point in the global plan
   tf::Stamped<tf::Pose> goal_pose;
   if ( ! planner_util->getGoal(goal_pose)) {
     return false;
   }
 
+  // gettimeofday(&end_f, NULL);
+  // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+  // se_diff = end_f_t - start_e_t;
+  // ROS_INFO("latchedController: isGoalReached until goal time: %.9f", se_diff);
+
   double goal_x = goal_pose.getOrigin().getX();
   double goal_y = goal_pose.getOrigin().getY();
 
   base_local_planner::LocalPlannerLimits limits = planner_util->getCurrentLimits();
+
+  // gettimeofday(&end_f, NULL);
+  // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+  // se_diff = end_f_t - start_e_t;
+  // ROS_INFO("latchedController: isGoalReached until limits time: %.9f", se_diff);
 
   //check to see if we've reached the goal position
   if ((latch_xy_goal_tolerance_ && xy_tolerance_latch_) ||
@@ -98,10 +135,22 @@ bool LatchedStopRotateController::isGoalReached(LocalPlannerUtil* planner_util,
     if (fabs(angle) <= limits.yaw_goal_tolerance) {
       //make sure that we're actually stopped before returning success
       if (base_local_planner::stopped(base_odom, rot_stopped_vel, trans_stopped_vel)) {
+
+        // gettimeofday(&end_f, NULL);
+        // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+        // se_diff = end_f_t - start_e_t;
+        // ROS_INFO("latchedController: isGoalReached full time: %.9f", se_diff);
+
         return true;
       }
     }
   }
+
+  // gettimeofday(&end_f, NULL);
+  // end_f_t = end_f.tv_sec + double(end_f.tv_usec) / 1e6;
+  // se_diff = end_f_t - start_e_t;
+  // ROS_INFO("latchedController: isGoalReached full time: %.9f", se_diff);
+
   return false;
 }
 

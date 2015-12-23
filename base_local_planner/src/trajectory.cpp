@@ -68,6 +68,18 @@ namespace base_local_planner {
     th_pts_.clear();
   }
 
+  void Trajectory::erasePoints(unsigned int start_index, unsigned int end_index){
+    x_pts_.erase(x_pts_.begin() + start_index, x_pts_.begin() + end_index);
+    y_pts_.erase(y_pts_.begin() + start_index, y_pts_.begin() + end_index);
+    th_pts_.erase(th_pts_.begin() + start_index, th_pts_.begin() + end_index);
+  }
+
+  void Trajectory::erasePoint(unsigned int index){
+    x_pts_.erase(x_pts_.begin() + index);
+    y_pts_.erase(y_pts_.begin() + index);
+    th_pts_.erase(th_pts_.begin() + index);
+  }
+
   void Trajectory::getEndpoint(double& x, double& y, double& th) const {
     x = x_pts_.back();
     y = y_pts_.back();

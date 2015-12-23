@@ -103,6 +103,19 @@ namespace base_local_planner {
       void resetPoints();
 
       /**
+       * @brief  Erase a range of trajectory points
+       * @param start_index The index of first of the points to erase
+       * @param end_index The index of last of the points to erase
+       */
+      void erasePoints(unsigned int start_index, unsigned int end_index);
+
+      /**
+       * @brief  Erase a trajectory point
+       * @param index The index of the point to erase
+       */
+      void erasePoint(unsigned int index);
+
+      /**
        * @brief  Return the number of points in the trajectory
        * @return The number of points in the trajectory
        */

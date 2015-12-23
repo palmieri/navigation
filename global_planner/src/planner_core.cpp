@@ -131,13 +131,13 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
             path_maker_ = new GridPath(p_calc_);
         else
             path_maker_ = new GradientPath(p_calc_);
-            
+
         orientation_filter_ = new OrientationFilter();
 
         plan_pub_ = private_nh.advertise<nav_msgs::Path>("plan", 1);
         potential_pub_ = private_nh.advertise<nav_msgs::OccupancyGrid>("potential", 1);
 
-        private_nh.param("allow_unknown", allow_unknown_, true);
+        private_nh.param("allow_unknown", allow_unknown_, false);
         planner_->setHasUnknown(allow_unknown_);
         private_nh.param("planner_window_x", planner_window_x_, 0.0);
         private_nh.param("planner_window_y", planner_window_y_, 0.0);
@@ -161,6 +161,14 @@ void GlobalPlanner::initialize(std::string name, costmap_2d::Costmap2D* costmap,
         initialized_ = true;
     } else
         ROS_WARN("This planner has already been initialized, you can't call it twice, doing nothing");
+
+}
+
+bool GlobalPlanner::setTollerance(double tollerance){
+
+  ROS_DEBUG("Setting global planner tollerance to %f", tollerance);
+  default_tolerance_ = tollerance;
+  return true;
 
 }
 
@@ -319,7 +327,7 @@ bool GlobalPlanner::makePlan(const geometry_msgs::PoseStamped& start, const geom
 
     // add orientations if needed
     orientation_filter_->processPath(start, plan);
-    
+
     //publish the plan for visualization purposes
     publishPlan(plan);
     delete potential_array_;
@@ -438,4 +446,3 @@ void GlobalPlanner::publishPotential(float* potential)
 }
 
 } //end namespace global_planner
-

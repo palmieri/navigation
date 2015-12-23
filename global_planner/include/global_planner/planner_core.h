@@ -164,6 +164,8 @@ class GlobalPlanner : public nav_core::BaseGlobalPlanner {
 
         bool makePlanService(nav_msgs::GetPlan::Request& req, nav_msgs::GetPlan::Response& resp);
 
+        bool setTollerance(double tollerance);
+
     protected:
 
         /**

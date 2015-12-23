@@ -1,6 +1,31 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(base_local_planner)
 
+ADD_DEFINITIONS(-march=corei7-avx)
+ADD_DEFINITIONS(-mtune=corei7-avx)
+ADD_DEFINITIONS(-msse)
+ADD_DEFINITIONS(-msse2)
+ADD_DEFINITIONS(-msse3)
+ADD_DEFINITIONS(-mssse3)
+ADD_DEFINITIONS(-msse4.1)
+ADD_DEFINITIONS(-msse4.2)
+IF($ENV{AVX})
+  ADD_DEFINITIONS(-mavx)
+  MESSAGE(STATUS "Compiling with AVX on")
+ELSE()
+  MESSAGE(WARNING "Compiling with AVX off")
+  ADD_DEFINITIONS(-mno-avx)
+ENDIF()
+ADD_DEFINITIONS(-mno-aes)
+ADD_DEFINITIONS(-O3)
+ADD_DEFINITIONS(-funroll-loops)
+ADD_DEFINITIONS(-fomit-frame-pointer)
+ADD_DEFINITIONS(-pipe)
+ADD_DEFINITIONS(-ftree-vectorize)
+ADD_DEFINITIONS(-DNDEBUG)
+# set(CMAKE_BUILD_TYPE RelWithDebInfo)
+
+
 find_package(catkin REQUIRED
         COMPONENTS
             cmake_modules

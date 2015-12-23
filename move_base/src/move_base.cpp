@@ -40,6 +40,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/thread.hpp>
+#include <sys/prctl.h>
 
 #include <geometry_msgs/Twist.h>
 
@@ -50,7 +51,7 @@ namespace move_base {
     as_(NULL),
     planner_costmap_ros_(NULL), controller_costmap_ros_(NULL),
     bgp_loader_("nav_core", "nav_core::BaseGlobalPlanner"),
-    blp_loader_("nav_core", "nav_core::BaseLocalPlanner"), 
+    blp_loader_("nav_core", "nav_core::BaseLocalPlanner"),
     recovery_loader_("nav_core", "nav_core::RecoveryBehavior"),
     planner_plan_(NULL), latest_plan_(NULL), controller_plan_(NULL),
     runPlanner_(false), setup_(false), p_freq_change_(false), c_freq_change_(false), new_global_plan_(false) {
@@ -80,6 +81,9 @@ namespace move_base {
     planner_plan_ = new std::vector<geometry_msgs::PoseStamped>();
     latest_plan_ = new std::vector<geometry_msgs::PoseStamped>();
     controller_plan_ = new std::vector<geometry_msgs::PoseStamped>();
+
+    // Hack to show the name of the thread in htop
+    prctl(PR_SET_NAME, "main_thread", 0, 0, 0);
 
     //set up the planner's thread
     planner_thread_ = new boost::thread(boost::bind(&MoveBase::planThread, this));
@@ -187,8 +191,12 @@ namespace move_base {
     }
 
     //initially, we'll need to make a plan
+    ROS_DEBUG_NAMED("move_base","Changing state in PLANNING during initialization of move_base");
     state_ = PLANNING;
 
+    //initially, not replanning
+    replanning_ = false;
+    waiting_global_planner_off_ = false;
     //we'll start executing recovery behaviors at the beginning of our list
     recovery_index_ = 0;
 
@@ -198,6 +206,8 @@ namespace move_base {
     dsrv_ = new dynamic_reconfigure::Server<move_base::MoveBaseConfig>(ros::NodeHandle("~"));
     dynamic_reconfigure::Server<move_base::MoveBaseConfig>::CallbackType cb = boost::bind(&MoveBase::reconfigureCB, this, _1, _2);
     dsrv_->setCallback(cb);
+
+
   }
 
   void MoveBase::reconfigureCB(move_base::MoveBaseConfig &config, uint32_t level){
@@ -269,6 +279,7 @@ namespace move_base {
         planner_plan_->clear();
         latest_plan_->clear();
         controller_plan_->clear();
+        ROS_DEBUG_NAMED("move_base","Resetting state in reconfigureCB when global planner changed");
         resetState();
         planner_->initialize(bgp_loader_.getName(config.base_global_planner), planner_costmap_ros_);
 
@@ -304,6 +315,7 @@ namespace move_base {
         planner_plan_->clear();
         latest_plan_->clear();
         controller_plan_->clear();
+        ROS_DEBUG_NAMED("move_base","Resetting state in reconfigureCB when local planner changed");
         resetState();
         tc_->initialize(blp_loader_.getName(config.base_local_planner), &tf_, controller_costmap_ros_);
       } catch (const pluginlib::PluginlibException& ex)
@@ -417,7 +429,7 @@ namespace move_base {
     //first try to make a plan to the exact desired goal
     std::vector<geometry_msgs::PoseStamped> global_plan;
     if(!planner_->makePlan(start, req.goal, global_plan) || global_plan.empty()){
-      ROS_DEBUG_NAMED("move_base","Failed to find a plan to exact goal of (%.2f, %.2f), searching for a feasible goal within tolerance", 
+      ROS_DEBUG_NAMED("move_base","Failed to find a plan to exact goal of (%.2f, %.2f), searching for a feasible goal within tolerance",
           req.goal.pose.position.x, req.goal.pose.position.y);
 
       //search outwards for a feasible goal within the specified tolerance
@@ -604,6 +616,10 @@ namespace move_base {
 
   void MoveBase::planThread(){
     ROS_DEBUG_NAMED("move_base_plan_thread","Starting planner thread...");
+
+    // Hack to show the name of the thread in htop
+    prctl(PR_SET_NAME, "global_planner", 0, 0, 0);
+
     ros::NodeHandle n;
     ros::Timer timer;
     bool wait_for_wake = false;
@@ -612,7 +628,7 @@ namespace move_base {
       //check if we should run the planner (the mutex is locked)
       while(wait_for_wake || !runPlanner_){
         //if we should not be running the planner then suspend this thread
-        ROS_DEBUG_NAMED("move_base_plan_thread","Planner thread is suspending");
+        ROS_DEBUG_NAMED("move_base_plan_thread","Planner thread is suspending, wait_for_awake %d, runPlanner_ %d", (int)wait_for_wake, (int )runPlanner_ );
         planner_cond_.wait(lock);
         wait_for_wake = false;
       }
@@ -625,7 +641,14 @@ namespace move_base {
 
       //run planner
       planner_plan_->clear();
-      bool gotPlan = n.ok() && makePlan(temp_goal, *planner_plan_);
+
+      // TODO check correctness of this Waiting
+      waiting_global_planner_off_ = true;
+      bool plan_generated = makePlan(temp_goal, *planner_plan_);
+
+      bool gotPlan = n.ok() && plan_generated;
+
+      ROS_DEBUG_NAMED("move_base_plan_thread","Plan Generated??  %d , gotPlan?? %d",plan_generated, gotPlan);
 
       if(gotPlan){
         ROS_DEBUG_NAMED("move_base_plan_thread","Got Plan with %zu points!", planner_plan_->size());
@@ -641,10 +664,29 @@ namespace move_base {
         ROS_DEBUG_NAMED("move_base_plan_thread","Generated a plan from the base_global_planner");
 
         //make sure we only start the controller if we still haven't reached the goal
-        if(runPlanner_)
-          state_ = CONTROLLING;
-        if(planner_frequency_ <= 0)
+        // if(runPlanner_){
+        //   ROS_DEBUG_NAMED("move_base_plan_thread","Activating Controlling state from the planner thread");
+        //   state_ = CONTROLLING;
+        // }else{
+
+        //   ROS_DEBUG_NAMED("move_base_plan_thread","Not Activating Controlling state after a valid plan was generated something went wrong");
+        //   ROS_DEBUG_NAMED("move_base_plan_thread","check if it was disabled when because there was a failer in passing the global plan");
+        //   ROS_DEBUG_NAMED("move_base_plan_thread","or because in the controlling state we are checking for goal reached");
+        //   ROS_DEBUG_NAMED("move_base_plan_thread","or because all the recoverz behaviours failed");
+
+        // }
+
+        state_ = CONTROLLING;
+
+        if(planner_frequency_ <= 0){
+          ROS_DEBUG_NAMED("move_base_plan_thread","Planning Frrequency lower than 0, not expected");
           runPlanner_ = false;
+        }
+
+
+        // TODO check correctness of this Waiting
+        waiting_global_planner_off_= false;
+
         lock.unlock();
       }
       //if we didn't get a plan and we are in the planning state (the robot isn't moving)
@@ -656,6 +698,7 @@ namespace move_base {
         lock.lock();
         if(ros::Time::now() > attempt_end && runPlanner_){
           //we'll move into our obstacle clearing mode
+          ROS_DEBUG_NAMED("move_base_plan_thread","Changing state in CLEARING due to a time-out limit during the global plan generation");
           state_ = CLEARING;
           publishZeroVelocity();
           recovery_trigger_ = PLANNING_R;
@@ -669,6 +712,7 @@ namespace move_base {
       //setup sleep interface if needed
       if(planner_frequency_ > 0){
         ros::Duration sleep_time = (start_time + ros::Duration(1.0/planner_frequency_)) - ros::Time::now();
+        ROS_DEBUG_NAMED("move_base_plan_thread","sleep_time in planning thread %f",sleep_time.toSec());
         if (sleep_time > ros::Duration(0.0)){
           wait_for_wake = true;
           timer = n.createTimer(sleep_time, &MoveBase::wakePlanner, this);
@@ -679,18 +723,28 @@ namespace move_base {
 
   void MoveBase::executeCb(const move_base_msgs::MoveBaseGoalConstPtr& move_base_goal)
   {
+    ROS_DEBUG_NAMED("move_base","ExecuteCb in Move Base");
+    //hackit
+    static int name_initialized = false;
+    if(!name_initialized){
+      name_initialized = true;
+      prctl(PR_SET_NAME, "action_cb", 0, 0, 0);
+    }
+
     if(!isQuaternionValid(move_base_goal->target_pose.pose.orientation)){
       as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
       return;
     }
 
     geometry_msgs::PoseStamped goal = goalToGlobalFrame(move_base_goal->target_pose);
-
+    ROS_DEBUG_NAMED("move_base","executeCb --> Received new goal %f %f", goal.pose.position.x, goal.pose.position.y);
     //we have a goal so start the planner
     boost::unique_lock<boost::mutex> lock(planner_mutex_);
     planner_goal_ = goal;
     runPlanner_ = true;
     planner_cond_.notify_one();
+    ROS_DEBUG_NAMED("move_base","executeCb --> Received new goal and planner_condition notified");
+    replanning_ = false; /// TODO, need to replan in this case too
     lock.unlock();
 
     current_goal_pub_.publish(goal);
@@ -711,6 +765,7 @@ namespace move_base {
     ros::NodeHandle n;
     while(n.ok())
     {
+
       if(c_freq_change_)
       {
         ROS_INFO("Setting controller frequency to %.2f", controller_frequency_);
@@ -722,6 +777,7 @@ namespace move_base {
         if(as_->isNewGoalAvailable()){
           //if we're active and a new goal is available, we'll accept it, but we won't shut anything down
           move_base_msgs::MoveBaseGoal new_goal = *as_->acceptNewGoal();
+          replanning_ = false;
 
           if(!isQuaternionValid(new_goal.target_pose.pose.orientation)){
             as_->setAborted(move_base_msgs::MoveBaseResult(), "Aborting on goal because it was sent with an invalid quaternion");
@@ -732,6 +788,7 @@ namespace move_base {
 
           //we'll make sure that we reset our state for the next execution cycle
           recovery_index_ = 0;
+          ROS_DEBUG_NAMED("move_base","Changing state in PLANNING because a Preempt request has arrived");
           state_ = PLANNING;
 
           //we have a new goal so make sure the planner is awake
@@ -751,6 +808,8 @@ namespace move_base {
           last_oscillation_reset_ = ros::Time::now();
         }
         else {
+
+          ROS_DEBUG_NAMED("move_base","Resetting state while movebase preempting the current goal");
           //if we've been preempted explicitly we need to shut things down
           resetState();
 
@@ -761,13 +820,18 @@ namespace move_base {
           //we'll actually return from execute after preempting
           return;
         }
-      }
+      }else{
 
+          ROS_DEBUG_NAMED("move_base","Request of new goal not Preempted");
+      }
+      // TODO: do we need to set replan_ value also here? it may happen that the costmap global frame is changed
+      /// and then  the globla planner has to replan
       //we also want to check if we've changed global frames because we need to transform our goal pose
       if(goal.header.frame_id != planner_costmap_ros_->getGlobalFrameID()){
         goal = goalToGlobalFrame(goal);
 
         //we want to go back to the planning state for the next execution cycle
+        ROS_DEBUG_NAMED("move_base","Changing state in Planning due to change of the goal frame");
         recovery_index_ = 0;
         state_ = PLANNING;
 
@@ -775,6 +839,8 @@ namespace move_base {
         lock.lock();
         planner_goal_ = goal;
         runPlanner_ = true;
+        replanning_ = false; /// TODO, need to replan in this case too
+
         planner_cond_.notify_one();
         lock.unlock();
 
@@ -804,6 +870,7 @@ namespace move_base {
       ROS_DEBUG_NAMED("move_base","Full control cycle time: %.9f\n", t_diff.toSec());
 
       r.sleep();
+
       //make sure to sleep for the remainder of our cycle time
       if(r.cycleTime() > ros::Duration(1 / controller_frequency_) && state_ == CONTROLLING)
         ROS_WARN("Control loop missed its desired rate of %.4fHz... the loop actually took %.4f seconds", controller_frequency_, r.cycleTime().toSec());
@@ -830,6 +897,7 @@ namespace move_base {
     //we need to be able to publish velocity commands
     geometry_msgs::Twist cmd_vel;
 
+    ROS_DEBUG_NAMED("move_base","executeCycle -->starting");
     //update feedback to correspond to our curent position
     tf::Stamped<tf::Pose> global_pose;
     planner_costmap_ros_->getRobotPose(global_pose);
@@ -847,7 +915,7 @@ namespace move_base {
       last_oscillation_reset_ = ros::Time::now();
       oscillation_pose_ = current_position;
 
-      //if our last recovery was caused by oscillation, we want to reset the recovery index 
+      //if our last recovery was caused by oscillation, we want to reset the recovery index
       if(recovery_trigger_ == OSCILLATION_R)
         recovery_index_ = 0;
     }
@@ -873,6 +941,7 @@ namespace move_base {
       controller_plan_ = latest_plan_;
       latest_plan_ = temp_plan;
       lock.unlock();
+
       ROS_DEBUG_NAMED("move_base","pointers swapped!");
 
       if(!tc_->setPlan(*controller_plan_)){
@@ -889,6 +958,9 @@ namespace move_base {
         return true;
       }
 
+
+
+
       //make sure to reset recovery_index_ since we were able to find a valid plan
       if(recovery_trigger_ == PLANNING_R)
         recovery_index_ = 0;
@@ -904,38 +976,57 @@ namespace move_base {
           planner_cond_.notify_one();
         }
         ROS_DEBUG_NAMED("move_base","Waiting for plan, in the planning state.");
-        break;
+        if(!replanning_)
+        {
+            ROS_DEBUG_NAMED("move_base","Changing replanning in True.");
+            replanning_ = true;
+            break;
+        }
+        ROS_DEBUG_NAMED("move_base","check replanning done, passing to controlling.");
 
       //if we're controlling, we'll attempt to find valid velocity commands
       case CONTROLLING:
+
         ROS_DEBUG_NAMED("move_base","In controlling state.");
 
         //check to see if we've reached our goal
-        if(tc_->isGoalReached()){
-          ROS_DEBUG_NAMED("move_base","Goal reached!");
-          resetState();
+        if(tc_->isGoalReached() &&  !waiting_global_planner_off_ ){
 
-          //disable the planner thread
-          boost::unique_lock<boost::mutex> lock(planner_mutex_);
-          runPlanner_ = false;
-          lock.unlock();
+            //TODO:
 
+            ROS_DEBUG_NAMED("move_base","Goal reached!");
+            {
+                ROS_DEBUG_NAMED("move_base","Resetting state while local planner reached the goal");
+                resetState();
+                boost::unique_lock<boost::mutex> lock(planner_mutex_);
+               runPlanner_ = false;
+                lock.unlock();
+            }
           as_->setSucceeded(move_base_msgs::MoveBaseResult(), "Goal reached.");
           return true;
         }
 
+
+
         //check for an oscillation condition
+        ROS_DEBUG_NAMED("move_base","check for an oscillation condition");
+
         if(oscillation_timeout_ > 0.0 &&
             last_oscillation_reset_ + ros::Duration(oscillation_timeout_) < ros::Time::now())
         {
           publishZeroVelocity();
+
+          ROS_DEBUG_NAMED("move_base","Changing state in CLEARNING due oscillation time-out");
           state_ = CLEARING;
           recovery_trigger_ = OSCILLATION_R;
         }
-        
+
+
         {
+
+         ROS_DEBUG_NAMED("move_base","Locking the costmap2D mutex");
          boost::unique_lock<costmap_2d::Costmap2D::mutex_t> lock(*(controller_costmap_ros_->getCostmap()->getMutex()));
-        
+
         if(tc_->computeVelocityCommands(cmd_vel)){
           ROS_DEBUG_NAMED( "move_base", "Got a valid command from the local planner: %.3lf, %.3lf, %.3lf",
                            cmd_vel.linear.x, cmd_vel.linear.y, cmd_vel.angular.z );
@@ -948,27 +1039,30 @@ namespace move_base {
         else {
           ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan.");
           ros::Time attempt_end = last_valid_control_ + ros::Duration(controller_patience_);
-
           //check if we've tried to find a valid control for longer than our time limit
           if(ros::Time::now() > attempt_end){
             //we'll move into our obstacle clearing mode
+            ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan. We'll move into our obstacle clearing mode");
+
             publishZeroVelocity();
+            ROS_DEBUG_NAMED("move_base","Changing state in CLEARNING due local planner time-out");
             state_ = CLEARING;
             recovery_trigger_ = CONTROLLING_R;
           }
           else{
+            ROS_DEBUG_NAMED("move_base", "The local planner could not find a valid plan. We'll go back to planning");
             //otherwise, if we can't find a valid control, we'll go back to planning
             last_valid_plan_ = ros::Time::now();
+            ROS_DEBUG_NAMED("move_base","Changing state in PLANNING because local planner did not generate a plan");
             state_ = PLANNING;
             publishZeroVelocity();
-
-            //enable the planner thread in case it isn't running on a clock
             boost::unique_lock<boost::mutex> lock(planner_mutex_);
             runPlanner_ = true;
             planner_cond_.notify_one();
             lock.unlock();
           }
         }
+
         }
 
         break;
@@ -986,7 +1080,9 @@ namespace move_base {
 
           //we'll check if the recovery behavior actually worked
           ROS_DEBUG_NAMED("move_base_recovery","Going back to planning state");
-          state_ = PLANNING;
+          ROS_DEBUG_NAMED("move_base","Changing state in CONTROLLING to execute recovery behaviours, fix made in one of the last commits");
+
+          state_ = PLANNING; // TODO: why is it CONTROLLING and not PLANNING?
 
           //update the index of the next recovery behavior that we'll try
           recovery_index_++;
@@ -1045,7 +1141,7 @@ namespace move_base {
                     std::string name_i = behavior_list[i]["name"];
                     std::string name_j = behavior_list[j]["name"];
                     if(name_i == name_j){
-                      ROS_ERROR("A recovery behavior with the name %s already exists, this is not allowed. Using the default recovery behaviors instead.", 
+                      ROS_ERROR("A recovery behavior with the name %s already exists, this is not allowed. Using the default recovery behaviors instead.",
                           name_i.c_str());
                       return false;
                     }
@@ -1088,6 +1184,7 @@ namespace move_base {
             if(behavior.get() == NULL){
               ROS_ERROR("The ClassLoader returned a null pointer without throwing an exception. This should not happen");
               return false;
+              return false;
             }
 
             //initialize the recovery behavior with its name
@@ -1101,7 +1198,7 @@ namespace move_base {
         }
       }
       else{
-        ROS_ERROR("The recovery behavior specification must be a list, but is of XmlRpcType %d. We'll use the default recovery behaviors instead.", 
+        ROS_ERROR("The recovery behavior specification must be a list, but is of XmlRpcType %d. We'll use the default recovery behaviors instead.",
             behavior_list.getType());
         return false;
       }
@@ -1154,11 +1251,14 @@ namespace move_base {
 
   void MoveBase::resetState(){
     // Disable the planner thread
+    ROS_DEBUG_NAMED("move_base","Resettin State!!");
     boost::unique_lock<boost::mutex> lock(planner_mutex_);
     runPlanner_ = false;
     lock.unlock();
 
     // Reset statemachine
+    ROS_DEBUG_NAMED("move_base","Changing state in PLANNING because of a resetState command");
+
     state_ = PLANNING;
     recovery_index_ = 0;
     recovery_trigger_ = PLANNING_R;

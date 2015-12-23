@@ -55,7 +55,9 @@ class PlannerWithCostmap : public GlobalPlanner {
     public:
         PlannerWithCostmap(string name, Costmap2DROS* cmap);
         bool makePlanService(navfn::MakeNavPlan::Request& req, navfn::MakeNavPlan::Response& resp);
-
+        bool setToll(double tollerance){
+          return setTollerance(tollerance);
+        }
     private:
         void poseCallback(const rm::PoseStamped::ConstPtr& goal);
         Costmap2DROS* cmap_;
@@ -116,4 +118,3 @@ int main(int argc, char** argv) {
     ros::spin();
     return 0;
 }
-

@@ -55,7 +55,7 @@ void ObstacleLayer::onInitialize()
 {
   ros::NodeHandle nh("~/" + name_), g_nh;
   rolling_window_ = layered_costmap_->isRolling();
-
+  combination_method_ = 1;
   bool track_unknown_space;
   nh.param("track_unknown_space", track_unknown_space, layered_costmap_->isTrackingUnknown());
   if (track_unknown_space)
@@ -616,5 +616,6 @@ void ObstacleLayer::reset()
     current_ = true;
     activate();
 }
+
 
 }  // namespace costmap_2d
